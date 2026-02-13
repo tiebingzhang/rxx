@@ -82,6 +82,11 @@ async fn main() -> Result<()> {
                 "QUIC connection established to {}",
                 connection.remote_address()
             );
+
+            // Send file
+            quic::send_file(&connection, &file).await?;
+
+            println!("File transfer completed successfully");
         }
         Commands::Receive {
             source,
@@ -123,6 +128,12 @@ async fn main() -> Result<()> {
                 "QUIC connection accepted from {}",
                 connection.remote_address()
             );
+
+            // Receive file
+            let output_path = output.unwrap_or_else(|| PathBuf::from("."));
+            quic::receive_file(&connection, &output_path).await?;
+
+            println!("File transfer completed successfully");
         }
     }
 

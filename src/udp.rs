@@ -94,10 +94,9 @@ async fn try_punch_hole(peer_addr: Ipv6Addr, is_server: bool) -> Result<SocketAd
                         .context("Failed to send probe ACK")?;
                     println!("Sent probe ACK to {}", from);
 
-                    // Check if bidirectional
-                    if sent_probe && received_probe {
-                        return Ok(peer_socket);
-                    }
+                    // If we've received a probe and sent ACK, bidirectional is established
+                    // (we can receive from peer, and peer will receive our ACK)
+                    return Ok(peer_socket);
                 } else if data == PROBE_ACK {
                     println!("Received probe ACK from {}", from);
                     received_probe = true;

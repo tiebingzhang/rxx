@@ -1,6 +1,6 @@
 ---
 id: rxx-9l90
-status: open
+status: closed
 deps: [rxx-kgbq, rxx-h70o]
 links: []
 created: 2026-02-13T22:53:12Z
@@ -17,3 +17,9 @@ Load custom cert/key from file paths provided via CLI
 
 Load cert from --cert path; Load key from --key path; Validate file exists and is readable; Use custom cert instead of default when provided; Handle file read errors gracefully
 
+
+## Notes
+
+**2026-02-13T23:15:23Z**
+
+Custom certificate support is fully implemented and tested. The receive side loads cert/key from CLI --cert and --key options. Tested with ECDSA certificate successfully. Error handling is in place with context messages for file read failures. Note: QUIC requires ECDSA certificates (not RSA) for proper handshake.

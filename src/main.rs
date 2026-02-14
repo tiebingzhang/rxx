@@ -253,7 +253,7 @@ async fn main() -> Result<()> {
                 );
 
                 // Receive file
-                match quic::receive_file(&connection, &output_base, user_folder).await {
+                match quic::receive_file(&connection, &output_base, user_folder, &config).await {
                     Ok(_) => println!("File transfer completed successfully"),
                     Err(e) => eprintln!("Error during file transfer: {}", e),
                 }
@@ -308,6 +308,7 @@ async fn main() -> Result<()> {
                     user_id: id.clone(),
                     server_url: server.clone(),
                     nonce: Some(nonce),
+                    hooks: None,
                 };
                 config.save()?;
                 println!("Successfully registered ID '{}'", id);

@@ -12,6 +12,7 @@ A Rust CLI tool for sending and receiving files over IPv6 using UDP hole punchin
 - **Self-Signed Certificates**: Automatic generation with custom certificate support
 - **IPv6 Native**: Built for IPv6 networking
 - **Central Server**: Optional registration server for ID-to-IP mapping
+- **Hooks**: Execute custom commands when files are received (see [HOOKS.md](HOOKS.md))
 - **Error Handling**: Comprehensive error handling for network and file I/O operations
 
 ## Installation

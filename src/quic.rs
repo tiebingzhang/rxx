@@ -294,6 +294,7 @@ pub async fn receive_file(
     connection: &Connection,
     output_dir: &Path,
     user_folder: bool,
+    config: &crate::config::Config,
 ) -> Result<()> {
     println!("Waiting for incoming file stream...");
 
@@ -471,6 +472,8 @@ pub async fn receive_file(
                             total_received
                         );
                     }
+
+                    config.execute_file_received_hook(&sender_id, &filename, file_size);
 
                     return Ok(());
                 }

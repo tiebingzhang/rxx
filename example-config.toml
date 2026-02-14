@@ -1,0 +1,11 @@
+# Example rxx configuration file
+# Location: ~/.rxx.conf
+
+user_id = "alice"
+server_url = "http://rxx.advistatech.com:3457"
+nonce = "your-nonce-here"
+
+# Optional: Hooks section
+# Uncomment and configure to enable hooks
+# [hooks]
+# file_received = "/path/to/your/hook-script.sh"

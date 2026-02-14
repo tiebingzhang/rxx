@@ -4,12 +4,14 @@ A Rust CLI tool for sending and receiving files over IPv6 using UDP hole punchin
 
 ## Features
 
+- **ID-Based Transfer**: Send files using memorable user IDs instead of IPv6 addresses
 - **UDP Hole Punching**: Establishes bidirectional UDP communication through firewalls
 - **QUIC Protocol**: Reliable, encrypted file transfer over UDP
 - **Progress Indicator**: Real-time progress bar showing bytes transferred and percentage
 - **File Integrity**: SHA256 hash verification ensures file integrity
 - **Self-Signed Certificates**: Automatic generation with custom certificate support
 - **IPv6 Native**: Built for IPv6 networking
+- **Central Server**: Optional registration server for ID-to-IP mapping
 - **Error Handling**: Comprehensive error handling for network and file I/O operations
 
 ## Installation
@@ -22,10 +24,31 @@ The binary will be available at `target/release/rxx`.
 
 ## Usage
 
+### Register Your ID (Optional)
+
+Register a memorable user ID with the central server:
+
+```bash
+rxx register <user-id> [OPTIONS]
+
+Options:
+  --server <url>    Server URL (default: http://rxx.advistatech.com:3457)
+```
+
+Example:
+```bash
+rxx register alice
+rxx register bob --server http://localhost:3457
+```
+
 ### Send a File
 
 ```bash
-rxx send <file> <destination-ipv6> [OPTIONS]
+rxx send <file> <destination> [OPTIONS]
+
+Arguments:
+  <file>         File to send
+  <destination>  Destination (IPv6 address or user ID)
 
 Options:
   --cert <path>    Path to custom certificate file
@@ -34,6 +57,10 @@ Options:
 
 Example:
 ```bash
+# Send using user ID
+rxx send myfile.txt alice
+
+# Send using IPv6 address
 rxx send myfile.txt ::1
 rxx send document.pdf 2001:db8::1 --cert cert.pem --key key.pem
 ```
@@ -41,7 +68,10 @@ rxx send document.pdf 2001:db8::1 --cert cert.pem --key key.pem
 ### Receive a File
 
 ```bash
-rxx receive <source-ipv6> [OPTIONS]
+rxx receive <source> [OPTIONS]
+
+Arguments:
+  <source>  Source (IPv6 address or user ID)
 
 Options:
   -o, --output <path>    Output directory for received file (default: current directory)
@@ -51,9 +81,37 @@ Options:
 
 Example:
 ```bash
+# Receive using user ID
+rxx receive bob
+
+# Receive using IPv6 address
 rxx receive ::1
 rxx receive 2001:db8::1 --output /tmp/downloads
 ```
+
+### Run Registration Server
+
+```bash
+rxx server [OPTIONS]
+
+Options:
+  --db <path>      Database file path (default: rxx.db)
+  --port <port>    Port to listen on (default: 3457)
+```
+
+Example:
+```bash
+rxx server
+rxx server --port 8080 --db /var/lib/rxx/registry.db
+```
+
+### Show IPv6 Addresses
+
+```bash
+rxx ip
+```
+
+Lists all available IPv6 addresses on your system.
 
 ## How It Works
 
@@ -151,6 +209,7 @@ All three milestones completed:
 - ✅ **Milestone 1**: Basic UDP Hole Punching
 - ✅ **Milestone 2**: QUIC Connection Establishment  
 - ✅ **Milestone 3**: File Transfer with Progress
+- ✅ **Milestone 4**: Central Server for ID-Based Peer Discovery
 
 ## License
 

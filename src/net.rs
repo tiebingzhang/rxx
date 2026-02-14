@@ -114,6 +114,26 @@ pub fn get_all_ipv6() -> Result<Vec<Ipv6Info>> {
 
 pub fn get_local_ipv6() -> Result<Ipv6Addr> {
     let addrs = get_all_ipv6()?;
+    
+    // Check if we have a global/routable IPv6 address
+    let has_global = addrs.iter().any(|info| matches!(info.scope, Ipv6Scope::Global));
+    
+    if !has_global {
+        bail!(
+            "No global/routable IPv6 address found. This software requires a public IPv6 address to work.\n\
+             Found only: {}\n\
+             Please ensure your network has IPv6 connectivity.",
+            addrs.iter()
+                .map(|info| format!("{} ({})", info.addr, match info.scope {
+                    Ipv6Scope::LinkLocal => "link-local",
+                    Ipv6Scope::UniqueLocal => "ULA/private",
+                    Ipv6Scope::Global => "global",
+                }))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    
     Ok(addrs[0].addr)
 }
 

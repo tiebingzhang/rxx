@@ -67,7 +67,7 @@ enum Commands {
     },
     /// Register user ID with the server
     Register {
-        /// User ID to register (alphanumeric, max 20 chars)
+        /// User ID to register (alphanumeric, dots, hyphens, underscores; must start/end with alphanumeric; max 20 chars)
         id: String,
 
         /// Server URL
@@ -206,11 +206,19 @@ async fn main() -> Result<()> {
             server::run_server(&db, port).await?;
         }
         Commands::Register { id, server } => {
-            if !id.chars().all(|c| c.is_alphanumeric()) {
-                anyhow::bail!("ID must be alphanumeric only");
+            // Validate ID format
+            if id.is_empty() || id.len() > 20 {
+                anyhow::bail!("ID must be between 1 and 20 characters");
             }
-            if id.len() > 20 {
-                anyhow::bail!("ID must be 20 characters or less");
+            
+            let first = id.chars().next().unwrap();
+            let last = id.chars().last().unwrap();
+            if !first.is_alphanumeric() || !last.is_alphanumeric() {
+                anyhow::bail!("ID must start and end with alphanumeric characters");
+            }
+            
+            if !id.chars().all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_') {
+                anyhow::bail!("ID can only contain alphanumeric characters, dots, hyphens, and underscores");
             }
 
             let ipv6 = net::get_local_ipv6()?;

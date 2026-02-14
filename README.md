@@ -31,6 +31,9 @@ Register a memorable user ID with the central server:
 ```bash
 rxx register <user-id> [OPTIONS]
 
+Arguments:
+  <user-id>  User ID (alphanumeric, dots, hyphens, underscores; must start/end with alphanumeric; max 20 chars)
+
 Options:
   --server <url>    Server URL (default: http://rxx.advistatech.com:3457)
 ```
@@ -38,7 +41,8 @@ Options:
 Example:
 ```bash
 rxx register alice
-rxx register bob --server http://localhost:3457
+rxx register alice-bob
+rxx register user.name_123 --server http://localhost:3457
 ```
 
 ### Send a File

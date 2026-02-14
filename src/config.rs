@@ -53,7 +53,7 @@ impl Config {
                 let fname = filename.to_string();
 
                 tokio::spawn(async move {
-                    println!("DEBUG [HOOK]: Executing file-received hook: {}", cmd);
+                    crate::debug!("DEBUG [HOOK]: Executing file-received hook: {}", cmd);
 
                     let result = tokio::time::timeout(
                         Duration::from_secs(10),
@@ -72,7 +72,7 @@ impl Config {
                     match result {
                         Ok(Ok(output)) => {
                             if output.status.success() {
-                                println!("DEBUG [HOOK]: Hook executed successfully");
+                                crate::debug!("DEBUG [HOOK]: Hook executed successfully");
                             } else {
                                 eprintln!(
                                     "WARN [HOOK]: Hook failed with exit code: {:?}",

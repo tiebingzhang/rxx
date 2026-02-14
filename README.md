@@ -7,6 +7,8 @@ A Rust CLI tool for sending and receiving files over IPv6 using UDP hole punchin
 - **ID-Based Transfer**: Send files using memorable user IDs instead of IPv6 addresses
 - **UDP Hole Punching**: Establishes bidirectional UDP communication through firewalls
 - **QUIC Protocol**: Reliable, encrypted file transfer over UDP
+- **Continuous Listening**: Receiver stays active and accepts multiple file transfers without restarting
+- **User Subfolders**: Optionally organize received files by sender's user ID
 - **Progress Indicator**: Real-time progress bar showing bytes transferred and percentage
 - **File Integrity**: SHA256 hash verification ensures file integrity
 - **Self-Signed Certificates**: Automatic generation with custom certificate support
@@ -70,7 +72,9 @@ rxx send myfile.txt ::1
 rxx send document.pdf 2001:db8::1 --cert cert.pem --key key.pem
 ```
 
-### Receive a File
+### Receive Files
+
+The receiver runs continuously, accepting multiple file transfers without restarting. It only exits when manually stopped (Ctrl+C).
 
 ```bash
 rxx receive <source> [OPTIONS]
@@ -79,9 +83,10 @@ Arguments:
   <source>  Source (IPv6 address or user ID)
 
 Options:
-  -o, --output <path>    Output directory for received file (default: current directory)
-  --cert <path>          Path to custom certificate file
-  --key <path>           Path to custom private key file
+  -o, --output <path>      Output directory for received files (default: current directory)
+  --user-folder            Organize files in subfolders named by sender's user ID
+  --cert <path>            Path to custom certificate file
+  --key <path>             Path to custom private key file
 ```
 
 Example:
@@ -91,8 +96,15 @@ rxx receive bob
 
 # Receive using IPv6 address
 rxx receive ::1
-rxx receive 2001:db8::1 --output /tmp/downloads
+
+# Save to specific directory
+rxx receive alice --output /tmp/downloads
+
+# Organize by sender ID (creates subfolder for each sender)
+rxx receive bob --output /tmp/downloads --user-folder
 ```
+
+The receiver will display "Waiting for next connection..." between transfers and continue listening for new files.
 
 ### Run Registration Server
 
@@ -122,9 +134,10 @@ Lists all available IPv6 addresses on your system.
 
 1. **UDP Hole Punching**: Both peers exchange probe packets to establish a bidirectional UDP channel through NAT/firewalls
 2. **QUIC Connection**: After UDP channel is established, a QUIC connection is created (receiver acts as server, sender as client)
-3. **File Transfer**: File metadata (name, size) is sent first, followed by file content in 64KB chunks
+3. **File Transfer**: Sender transmits user ID, then file metadata (name, size), followed by file content in 64KB chunks
 4. **Integrity Verification**: SHA256 hash is calculated during transfer and verified on the receiver side
 5. **Progress Display**: Real-time progress bar shows transfer status
+6. **Continuous Operation**: Receiver loops back to accept the next connection after completing a transfer
 
 ## Certificate Management
 

@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::net::Ipv6Addr;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 mod cert;
 mod config;
@@ -12,10 +13,29 @@ mod quic;
 mod server;
 mod udp;
 
+static DEBUG: AtomicBool = AtomicBool::new(false);
+
+pub fn is_debug() -> bool {
+    DEBUG.load(Ordering::Relaxed)
+}
+
+#[macro_export]
+macro_rules! debug {
+    ($($arg:tt)*) => {
+        if $crate::is_debug() {
+            println!($($arg)*);
+        }
+    };
+}
+
 #[derive(Parser)]
 #[command(name = "rxx")]
 #[command(version, about = "UDP/IPv6 File Transfer Tool", long_about = None)]
 struct Cli {
+    /// Enable debug logging
+    #[arg(long, global = true)]
+    debug: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -86,6 +106,8 @@ enum Commands {
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    DEBUG.store(cli.debug, Ordering::Relaxed);
+
     match cli.command {
         Commands::Send {
             file,
@@ -134,10 +156,10 @@ async fn main() -> Result<()> {
             quic::send_file(&connection, &file, &config.user_id).await?;
 
             // Close connection gracefully and wait for acknowledgment
-            println!("DEBUG [MAIN]: Closing connection gracefully...");
+            debug!("DEBUG [MAIN]: Closing connection gracefully...");
             connection.close(0u32.into(), b"transfer complete");
             connection.closed().await;
-            println!("DEBUG [MAIN]: Connection closed");
+            debug!("DEBUG [MAIN]: Connection closed");
 
             println!("File transfer completed successfully");
         }

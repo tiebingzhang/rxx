@@ -177,31 +177,31 @@ pub async fn send_file(connection: &Connection, file_path: &Path, user_id: &str)
 
     println!("Sending file: {} ({} bytes)", file_name, file_size);
 
-    println!("DEBUG [SEND]: Opening bidirectional stream...");
+    crate::debug!("DEBUG [SEND]: Opening bidirectional stream...");
     let (mut send, _recv) = connection
         .open_bi()
         .await
         .context("Failed to open bidirectional stream")?;
-    println!("DEBUG [SEND]: Bidirectional stream opened");
+    crate::debug!("DEBUG [SEND]: Bidirectional stream opened");
 
     // Send metadata: user_id length (u32) + user_id + filename length (u32) + filename + file size (u64)
-    println!("DEBUG [SEND]: Sending user_id length: {}", user_id.len());
+    crate::debug!("DEBUG [SEND]: Sending user_id length: {}", user_id.len());
     send.write_u32(user_id.len() as u32)
         .await
         .context("Failed to send user_id length")?;
-    println!("DEBUG [SEND]: Sending user_id: {}", user_id);
+    crate::debug!("DEBUG [SEND]: Sending user_id: {}", user_id);
     send.write_all(user_id.as_bytes())
         .await
         .context("Failed to send user_id")?;
-    println!("DEBUG [SEND]: Sending filename length: {}", file_name.len());
+    crate::debug!("DEBUG [SEND]: Sending filename length: {}", file_name.len());
     send.write_u32(file_name.len() as u32)
         .await
         .context("Failed to send filename length")?;
-    println!("DEBUG [SEND]: Sending filename: {}", file_name);
+    crate::debug!("DEBUG [SEND]: Sending filename: {}", file_name);
     send.write_all(file_name.as_bytes())
         .await
         .context("Failed to send filename")?;
-    println!("DEBUG [SEND]: Sending file size: {}", file_size);
+    crate::debug!("DEBUG [SEND]: Sending file size: {}", file_size);
     send.write_u64(file_size)
         .await
         .context("Failed to send file size")?;
@@ -224,7 +224,7 @@ pub async fn send_file(connection: &Connection, file_path: &Path, user_id: &str)
     let mut total_sent = 0u64;
     let mut chunk_count = 0u64;
 
-    println!("DEBUG [SEND]: Starting file content loop...");
+    crate::debug!("DEBUG [SEND]: Starting file content loop...");
     loop {
         let n = file
             .read(&mut buffer)
@@ -237,17 +237,17 @@ pub async fn send_file(connection: &Connection, file_path: &Path, user_id: &str)
         );
 
         if n == 0 {
-            println!("DEBUG [SEND]: EOF reached, breaking loop");
+            crate::debug!("DEBUG [SEND]: EOF reached, breaking loop");
             break;
         }
 
         hasher.update(&buffer[..n]);
 
-        println!("DEBUG [SEND]: Calling write_all for {} bytes...", n);
+        crate::debug!("DEBUG [SEND]: Calling write_all for {} bytes...", n);
         send.write_all(&buffer[..n])
             .await
             .context("Failed to send file chunk")?;
-        println!("DEBUG [SEND]: write_all completed for {} bytes", n);
+        crate::debug!("DEBUG [SEND]: write_all completed for {} bytes", n);
 
         total_sent += n as u64;
         chunk_count += 1;
@@ -267,20 +267,20 @@ pub async fn send_file(connection: &Connection, file_path: &Path, user_id: &str)
 
     // Send hash
     let hash = hasher.finalize();
-    println!("DEBUG [SEND]: Sending SHA256 hash: {:x}", hash);
+    crate::debug!("DEBUG [SEND]: Sending SHA256 hash: {:x}", hash);
     send.write_all(&hash)
         .await
         .context("Failed to send file hash")?;
-    println!("DEBUG [SEND]: Hash sent successfully");
+    crate::debug!("DEBUG [SEND]: Hash sent successfully");
 
-    println!("DEBUG [SEND]: Calling send.finish()...");
+    crate::debug!("DEBUG [SEND]: Calling send.finish()...");
     send.finish().context("Failed to finish stream")?;
-    println!("DEBUG [SEND]: send.finish() completed");
+    crate::debug!("DEBUG [SEND]: send.finish() completed");
 
     // Wait for the stream to be fully acknowledged
-    println!("DEBUG [SEND]: Waiting for stream to be fully transmitted...");
+    crate::debug!("DEBUG [SEND]: Waiting for stream to be fully transmitted...");
     send.stopped().await.context("Stream was stopped by peer")?;
-    println!("DEBUG [SEND]: Stream fully transmitted and acknowledged");
+    crate::debug!("DEBUG [SEND]: Stream fully transmitted and acknowledged");
 
     println!(
         "File sent successfully: {} bytes (SHA256: {:x})",
@@ -298,49 +298,49 @@ pub async fn receive_file(
 ) -> Result<()> {
     println!("Waiting for incoming file stream...");
 
-    println!("DEBUG [RECV]: Calling accept_bi()...");
+    crate::debug!("DEBUG [RECV]: Calling accept_bi()...");
     let (_send, mut recv) = connection
         .accept_bi()
         .await
         .context("Failed to accept bidirectional stream")?;
-    println!("DEBUG [RECV]: Bidirectional stream accepted");
+    crate::debug!("DEBUG [RECV]: Bidirectional stream accepted");
 
     // Receive metadata
-    println!("DEBUG [RECV]: Reading user_id length...");
+    crate::debug!("DEBUG [RECV]: Reading user_id length...");
     let user_id_len = recv
         .read_u32()
         .await
         .context("Failed to read user_id length")?;
-    println!("DEBUG [RECV]: User_id length: {}", user_id_len);
+    crate::debug!("DEBUG [RECV]: User_id length: {}", user_id_len);
 
     let mut user_id_bytes = vec![0u8; user_id_len as usize];
-    println!("DEBUG [RECV]: Reading user_id bytes...");
+    crate::debug!("DEBUG [RECV]: Reading user_id bytes...");
     recv.read_exact(&mut user_id_bytes)
         .await
         .context("Failed to read user_id")?;
 
     let sender_id = String::from_utf8(user_id_bytes).context("Invalid UTF-8 in user_id")?;
-    println!("DEBUG [RECV]: Sender ID: {}", sender_id);
+    crate::debug!("DEBUG [RECV]: Sender ID: {}", sender_id);
 
-    println!("DEBUG [RECV]: Reading filename length...");
+    crate::debug!("DEBUG [RECV]: Reading filename length...");
     let filename_len = recv
         .read_u32()
         .await
         .context("Failed to read filename length")?;
-    println!("DEBUG [RECV]: Filename length: {}", filename_len);
+    crate::debug!("DEBUG [RECV]: Filename length: {}", filename_len);
 
     let mut filename_bytes = vec![0u8; filename_len as usize];
-    println!("DEBUG [RECV]: Reading filename bytes...");
+    crate::debug!("DEBUG [RECV]: Reading filename bytes...");
     recv.read_exact(&mut filename_bytes)
         .await
         .context("Failed to read filename")?;
 
     let filename = String::from_utf8(filename_bytes).context("Invalid UTF-8 in filename")?;
-    println!("DEBUG [RECV]: Filename: {}", filename);
+    crate::debug!("DEBUG [RECV]: Filename: {}", filename);
 
-    println!("DEBUG [RECV]: Reading file size...");
+    crate::debug!("DEBUG [RECV]: Reading file size...");
     let file_size = recv.read_u64().await.context("Failed to read file size")?;
-    println!("DEBUG [RECV]: File size: {}", file_size);
+    crate::debug!("DEBUG [RECV]: File size: {}", file_size);
 
     println!(
         "Receiving file: {} ({} bytes) from {}",
@@ -386,7 +386,7 @@ pub async fn receive_file(
     let mut total_received = 0u64;
     let mut chunk_count = 0u64;
 
-    println!("DEBUG [RECV]: Starting receive loop...");
+    crate::debug!("DEBUG [RECV]: Starting receive loop...");
     loop {
         println!(
             "DEBUG [RECV]: Calling recv.read() (chunk #{}, total_received={}/{})",
@@ -395,7 +395,7 @@ pub async fn receive_file(
         match recv.read(&mut buffer).await {
             Ok(Some(n)) => {
                 chunk_count += 1;
-                println!("DEBUG [RECV]: recv.read() returned {} bytes (chunk #{}, total_received={}, file_size={})", n, chunk_count, total_received, file_size);
+                crate::debug!("DEBUG [RECV]: recv.read() returned {} bytes (chunk #{}, total_received={}, file_size={})", n, chunk_count, total_received, file_size);
 
                 if total_received + n as u64 > file_size {
                     println!(
@@ -440,7 +440,7 @@ pub async fn receive_file(
                             .await
                             .context("Failed to read complete hash")?;
                         received_hash.extend_from_slice(&hash_buf);
-                        println!("DEBUG [RECV]: Complete hash received");
+                        crate::debug!("DEBUG [RECV]: Complete hash received");
                     }
 
                     pb.finish_with_message("Received");
@@ -448,7 +448,7 @@ pub async fn receive_file(
 
                     // Verify hash
                     let computed_hash = hasher.finalize();
-                    println!("DEBUG [RECV]: Computed hash: {:x}", computed_hash);
+                    crate::debug!("DEBUG [RECV]: Computed hash: {:x}", computed_hash);
                     println!(
                         "DEBUG [RECV]: Received hash: {}",
                         hex::encode(&received_hash)
@@ -478,7 +478,7 @@ pub async fn receive_file(
                     return Ok(());
                 }
 
-                println!("DEBUG [RECV]: Writing {} bytes to file", n);
+                crate::debug!("DEBUG [RECV]: Writing {} bytes to file", n);
                 hasher.update(&buffer[..n]);
                 file.write_all(&buffer[..n])
                     .await
@@ -492,11 +492,11 @@ pub async fn receive_file(
                 );
             }
             Ok(None) => {
-                println!("DEBUG [RECV]: recv.read() returned None (stream finished), total_received={}, file_size={}", total_received, file_size);
+                crate::debug!("DEBUG [RECV]: recv.read() returned None (stream finished), total_received={}, file_size={}", total_received, file_size);
                 break;
             }
             Err(e) => {
-                println!("DEBUG [RECV]: recv.read() returned error: {:?}", e);
+                crate::debug!("DEBUG [RECV]: recv.read() returned error: {:?}", e);
                 return Err(e).context("Failed to read from stream");
             }
         }

@@ -231,9 +231,11 @@ pub async fn send_file(connection: &Connection, file_path: &Path, user_id: &str)
             .await
             .context("Failed to read from file")?;
 
-        println!(
+        crate::debug!(
             "DEBUG [SEND]: Read {} bytes from file (chunk #{}, total_sent={})",
-            n, chunk_count, total_sent
+            n,
+            chunk_count,
+            total_sent
         );
 
         if n == 0 {
@@ -253,13 +255,15 @@ pub async fn send_file(connection: &Connection, file_path: &Path, user_id: &str)
         chunk_count += 1;
         pb.set_position(total_sent);
 
-        println!(
+        crate::debug!(
             "DEBUG [SEND]: Chunk #{} sent, total_sent={}/{}",
-            chunk_count, total_sent, file_size
+            chunk_count,
+            total_sent,
+            file_size
         );
     }
 
-    println!(
+    crate::debug!(
         "DEBUG [SEND]: File content loop completed, total_sent={}",
         total_sent
     );
@@ -388,9 +392,11 @@ pub async fn receive_file(
 
     crate::debug!("DEBUG [RECV]: Starting receive loop...");
     loop {
-        println!(
+        crate::debug!(
             "DEBUG [RECV]: Calling recv.read() (chunk #{}, total_received={}/{})",
-            chunk_count, total_received, file_size
+            chunk_count,
+            total_received,
+            file_size
         );
         match recv.read(&mut buffer).await {
             Ok(Some(n)) => {
@@ -398,20 +404,21 @@ pub async fn receive_file(
                 crate::debug!("DEBUG [RECV]: recv.read() returned {} bytes (chunk #{}, total_received={}, file_size={})", n, chunk_count, total_received, file_size);
 
                 if total_received + n as u64 > file_size {
-                    println!(
+                    crate::debug!(
                         "DEBUG [RECV]: Detected hash in this chunk (total would be {} > {})",
                         total_received + n as u64,
                         file_size
                     );
                     // This is the hash, not file data
                     let hash_start = (file_size - total_received) as usize;
-                    println!(
+                    crate::debug!(
                         "DEBUG [RECV]: hash_start={}, remaining_file_data={}",
-                        hash_start, hash_start
+                        hash_start,
+                        hash_start
                     );
 
                     if hash_start > 0 {
-                        println!(
+                        crate::debug!(
                             "DEBUG [RECV]: Writing final {} bytes of file data",
                             hash_start
                         );
@@ -425,13 +432,13 @@ pub async fn receive_file(
 
                     // Read the hash
                     let mut received_hash = buffer[hash_start..n].to_vec();
-                    println!(
+                    crate::debug!(
                         "DEBUG [RECV]: Extracted {} bytes of hash from current buffer",
                         received_hash.len()
                     );
                     let remaining = 32 - received_hash.len();
                     if remaining > 0 {
-                        println!(
+                        crate::debug!(
                             "DEBUG [RECV]: Need to read {} more bytes for complete hash",
                             remaining
                         );
@@ -449,7 +456,7 @@ pub async fn receive_file(
                     // Verify hash
                     let computed_hash = hasher.finalize();
                     crate::debug!("DEBUG [RECV]: Computed hash: {:x}", computed_hash);
-                    println!(
+                    crate::debug!(
                         "DEBUG [RECV]: Received hash: {}",
                         hex::encode(&received_hash)
                     );
@@ -486,9 +493,11 @@ pub async fn receive_file(
 
                 total_received += n as u64;
                 pb.set_position(total_received);
-                println!(
+                crate::debug!(
                     "DEBUG [RECV]: Chunk #{} written, total_received={}/{}",
-                    chunk_count, total_received, file_size
+                    chunk_count,
+                    total_received,
+                    file_size
                 );
             }
             Ok(None) => {

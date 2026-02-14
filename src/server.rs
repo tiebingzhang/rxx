@@ -16,10 +16,16 @@ pub struct RegisterRequest {
     pub ipv6: String,
 }
 
+#[derive(Serialize)]
+pub struct RegisterResponse {
+    pub nonce: String,
+}
+
 #[derive(Deserialize)]
 pub struct UpdateRequest {
     pub id: String,
     pub ipv6: String,
+    pub nonce: String,
     pub peer_id: String,
 }
 
@@ -38,11 +44,11 @@ async fn register(
 ) -> Response {
     let db = state.db.lock().unwrap();
     match db.register(&req.id, &req.ipv6) {
-        Ok(true) => {
+        Ok((true, nonce)) => {
             println!("Registered: {} -> {}", req.id, req.ipv6);
-            StatusCode::OK.into_response()
+            Json(RegisterResponse { nonce }).into_response()
         }
-        Ok(false) => {
+        Ok((false, _)) => {
             println!("Duplicate ID: {}", req.id);
             StatusCode::CONFLICT.into_response()
         }
@@ -56,9 +62,18 @@ async fn register(
 async fn update(State(state): State<Arc<AppState>>, Json(req): Json<UpdateRequest>) -> Response {
     let db = state.db.lock().unwrap();
 
-    if let Err(e) = db.update(&req.id, &req.ipv6) {
-        eprintln!("Update error: {}", e);
-        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    match db.update(&req.id, &req.ipv6, &req.nonce) {
+        Ok(true) => {
+            // Nonce valid, proceed with peer lookup
+        }
+        Ok(false) => {
+            eprintln!("Invalid nonce for {}", req.id);
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+        Err(e) => {
+            eprintln!("Update error: {}", e);
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
     }
 
     match db.get_ipv6(&req.peer_id) {

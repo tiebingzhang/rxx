@@ -122,6 +122,9 @@ pub async fn resolve_peer(peer: &str, config: &crate::config::Config) -> Result<
         crate::peer::PeerAddress::Ipv6(addr) => addr,
         crate::peer::PeerAddress::Id(peer_id) => {
             let local_ipv6 = get_local_ipv6()?;
+            let nonce = config.nonce.as_ref().ok_or_else(|| {
+                anyhow::anyhow!("No nonce found. Please re-register with: rxx register <id>")
+            })?;
 
             let client = reqwest::Client::new();
             let response = client
@@ -129,6 +132,7 @@ pub async fn resolve_peer(peer: &str, config: &crate::config::Config) -> Result<
                 .json(&serde_json::json!({
                     "id": config.user_id,
                     "ipv6": local_ipv6.to_string(),
+                    "nonce": nonce,
                     "peer_id": peer_id
                 }))
                 .send()
@@ -143,6 +147,8 @@ pub async fn resolve_peer(peer: &str, config: &crate::config::Config) -> Result<
                 peer_ipv6_str.parse()?
             } else if response.status() == reqwest::StatusCode::NOT_FOUND {
                 bail!("Peer ID '{}' not found on server", peer_id);
+            } else if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+                bail!("Invalid nonce. Please re-register with: rxx register <id>");
             } else {
                 bail!("Server error: {}", response.status());
             }

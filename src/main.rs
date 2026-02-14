@@ -227,9 +227,16 @@ async fn main() -> Result<()> {
                 .await?;
 
             if response.status().is_success() {
+                let body: serde_json::Value = response.json().await?;
+                let nonce = body["nonce"]
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Server did not return nonce"))?
+                    .to_string();
+
                 let config = config::Config {
                     user_id: id.clone(),
                     server_url: server.clone(),
+                    nonce: Some(nonce),
                 };
                 config.save()?;
                 println!("Successfully registered ID '{}'", id);

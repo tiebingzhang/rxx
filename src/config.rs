@@ -7,6 +7,8 @@ use std::path::PathBuf;
 pub struct Config {
     pub user_id: String,
     pub server_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<String>,
 }
 
 impl Config {

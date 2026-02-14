@@ -31,7 +31,9 @@ pub fn create_server_config(cert_key: &CertKeyPair) -> Result<ServerConfig> {
         .context("Failed to create server config")?;
 
     let mut transport = quinn::TransportConfig::default();
-    transport.max_idle_timeout(Some(quinn::IdleTimeout::from(quinn::VarInt::from_u32(300000)))); // 5 minutes
+    transport.max_idle_timeout(Some(quinn::IdleTimeout::from(quinn::VarInt::from_u32(
+        300000,
+    )))); // 5 minutes
     transport.keep_alive_interval(Some(std::time::Duration::from_secs(10)));
     transport.stream_receive_window(quinn::VarInt::from_u32(1024 * 1024)); // 1MB per stream
     transport.receive_window(quinn::VarInt::from_u64(10 * 1024 * 1024).unwrap()); // 10MB connection
@@ -60,7 +62,9 @@ pub fn create_client_config() -> Result<ClientConfig> {
     ));
 
     let mut transport = quinn::TransportConfig::default();
-    transport.max_idle_timeout(Some(quinn::IdleTimeout::from(quinn::VarInt::from_u32(300000)))); // 5 minutes
+    transport.max_idle_timeout(Some(quinn::IdleTimeout::from(quinn::VarInt::from_u32(
+        300000,
+    )))); // 5 minutes
     transport.keep_alive_interval(Some(std::time::Duration::from_secs(10)));
     transport.stream_receive_window(quinn::VarInt::from_u32(1024 * 1024)); // 1MB per stream
     transport.receive_window(quinn::VarInt::from_u64(10 * 1024 * 1024).unwrap()); // 10MB connection
@@ -219,7 +223,10 @@ pub async fn send_file(connection: &Connection, file_path: &Path) -> Result<()> 
             .await
             .context("Failed to read from file")?;
 
-        println!("DEBUG [SEND]: Read {} bytes from file (chunk #{}, total_sent={})", n, chunk_count, total_sent);
+        println!(
+            "DEBUG [SEND]: Read {} bytes from file (chunk #{}, total_sent={})",
+            n, chunk_count, total_sent
+        );
 
         if n == 0 {
             println!("DEBUG [SEND]: EOF reached, breaking loop");
@@ -237,11 +244,17 @@ pub async fn send_file(connection: &Connection, file_path: &Path) -> Result<()> 
         total_sent += n as u64;
         chunk_count += 1;
         pb.set_position(total_sent);
-        
-        println!("DEBUG [SEND]: Chunk #{} sent, total_sent={}/{}", chunk_count, total_sent, file_size);
+
+        println!(
+            "DEBUG [SEND]: Chunk #{} sent, total_sent={}/{}",
+            chunk_count, total_sent, file_size
+        );
     }
 
-    println!("DEBUG [SEND]: File content loop completed, total_sent={}", total_sent);
+    println!(
+        "DEBUG [SEND]: File content loop completed, total_sent={}",
+        total_sent
+    );
     pb.finish_with_message("Sent");
 
     // Send hash
@@ -255,12 +268,12 @@ pub async fn send_file(connection: &Connection, file_path: &Path) -> Result<()> 
     println!("DEBUG [SEND]: Calling send.finish()...");
     send.finish().context("Failed to finish stream")?;
     println!("DEBUG [SEND]: send.finish() completed");
-    
+
     // Wait for the stream to be fully acknowledged
     println!("DEBUG [SEND]: Waiting for stream to be fully transmitted...");
     send.stopped().await.context("Stream was stopped by peer")?;
     println!("DEBUG [SEND]: Stream fully transmitted and acknowledged");
-    
+
     println!(
         "File sent successfully: {} bytes (SHA256: {:x})",
         total_sent, hash
@@ -336,20 +349,33 @@ pub async fn receive_file(connection: &Connection, output_dir: &Path) -> Result<
 
     println!("DEBUG [RECV]: Starting receive loop...");
     loop {
-        println!("DEBUG [RECV]: Calling recv.read() (chunk #{}, total_received={}/{})", chunk_count, total_received, file_size);
+        println!(
+            "DEBUG [RECV]: Calling recv.read() (chunk #{}, total_received={}/{})",
+            chunk_count, total_received, file_size
+        );
         match recv.read(&mut buffer).await {
             Ok(Some(n)) => {
                 chunk_count += 1;
                 println!("DEBUG [RECV]: recv.read() returned {} bytes (chunk #{}, total_received={}, file_size={})", n, chunk_count, total_received, file_size);
-                
+
                 if total_received + n as u64 > file_size {
-                    println!("DEBUG [RECV]: Detected hash in this chunk (total would be {} > {})", total_received + n as u64, file_size);
+                    println!(
+                        "DEBUG [RECV]: Detected hash in this chunk (total would be {} > {})",
+                        total_received + n as u64,
+                        file_size
+                    );
                     // This is the hash, not file data
                     let hash_start = (file_size - total_received) as usize;
-                    println!("DEBUG [RECV]: hash_start={}, remaining_file_data={}", hash_start, hash_start);
-                    
+                    println!(
+                        "DEBUG [RECV]: hash_start={}, remaining_file_data={}",
+                        hash_start, hash_start
+                    );
+
                     if hash_start > 0 {
-                        println!("DEBUG [RECV]: Writing final {} bytes of file data", hash_start);
+                        println!(
+                            "DEBUG [RECV]: Writing final {} bytes of file data",
+                            hash_start
+                        );
                         hasher.update(&buffer[..hash_start]);
                         file.write_all(&buffer[..hash_start])
                             .await
@@ -360,10 +386,16 @@ pub async fn receive_file(connection: &Connection, output_dir: &Path) -> Result<
 
                     // Read the hash
                     let mut received_hash = buffer[hash_start..n].to_vec();
-                    println!("DEBUG [RECV]: Extracted {} bytes of hash from current buffer", received_hash.len());
+                    println!(
+                        "DEBUG [RECV]: Extracted {} bytes of hash from current buffer",
+                        received_hash.len()
+                    );
                     let remaining = 32 - received_hash.len();
                     if remaining > 0 {
-                        println!("DEBUG [RECV]: Need to read {} more bytes for complete hash", remaining);
+                        println!(
+                            "DEBUG [RECV]: Need to read {} more bytes for complete hash",
+                            remaining
+                        );
                         let mut hash_buf = vec![0u8; remaining];
                         recv.read_exact(&mut hash_buf)
                             .await
@@ -378,8 +410,11 @@ pub async fn receive_file(connection: &Connection, output_dir: &Path) -> Result<
                     // Verify hash
                     let computed_hash = hasher.finalize();
                     println!("DEBUG [RECV]: Computed hash: {:x}", computed_hash);
-                    println!("DEBUG [RECV]: Received hash: {}", hex::encode(&received_hash));
-                    
+                    println!(
+                        "DEBUG [RECV]: Received hash: {}",
+                        hex::encode(&received_hash)
+                    );
+
                     if computed_hash.as_slice() != received_hash.as_slice() {
                         anyhow::bail!(
                             "File integrity check failed: hash mismatch\nExpected: {:x}\nReceived: {}",
@@ -410,7 +445,10 @@ pub async fn receive_file(connection: &Connection, output_dir: &Path) -> Result<
 
                 total_received += n as u64;
                 pb.set_position(total_received);
-                println!("DEBUG [RECV]: Chunk #{} written, total_received={}/{}", chunk_count, total_received, file_size);
+                println!(
+                    "DEBUG [RECV]: Chunk #{} written, total_received={}/{}",
+                    chunk_count, total_received, file_size
+                );
             }
             Ok(None) => {
                 println!("DEBUG [RECV]: recv.read() returned None (stream finished), total_received={}, file_size={}", total_received, file_size);
@@ -423,7 +461,10 @@ pub async fn receive_file(connection: &Connection, output_dir: &Path) -> Result<
         }
     }
 
-    println!("DEBUG [RECV]: Exited receive loop, total_received={}, file_size={}", total_received, file_size);
+    println!(
+        "DEBUG [RECV]: Exited receive loop, total_received={}, file_size={}",
+        total_received, file_size
+    );
     pb.finish_with_message("Received");
     file.flush().await.context("Failed to flush file")?;
 

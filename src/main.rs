@@ -4,7 +4,12 @@ use std::net::Ipv6Addr;
 use std::path::PathBuf;
 
 mod cert;
+mod config;
+mod db;
+mod net;
+mod peer;
 mod quic;
+mod server;
 mod udp;
 
 #[derive(Parser)]
@@ -22,8 +27,8 @@ enum Commands {
         /// File to send
         file: PathBuf,
 
-        /// Destination IPv6 address
-        destination: Ipv6Addr,
+        /// Destination (IPv6 address or user ID)
+        destination: String,
 
         /// Path to custom certificate file
         #[arg(long)]
@@ -35,8 +40,8 @@ enum Commands {
     },
     /// Receive a file from a remote peer
     Receive {
-        /// Source IPv6 address
-        source: Ipv6Addr,
+        /// Source (IPv6 address or user ID)
+        source: String,
 
         /// Output directory for received file
         #[arg(short, long)]
@@ -49,6 +54,25 @@ enum Commands {
         /// Path to custom private key file
         #[arg(long)]
         key: Option<PathBuf>,
+    },
+    /// Run the registration server
+    Server {
+        /// Database file path
+        #[arg(long, default_value = "rxx.db")]
+        db: String,
+
+        /// Port to listen on
+        #[arg(long, default_value = "3457")]
+        port: u16,
+    },
+    /// Register user ID with the server
+    Register {
+        /// User ID to register (alphanumeric, max 20 chars)
+        id: String,
+
+        /// Server URL
+        #[arg(long, default_value = "http://rxx.advistatech.com:3457")]
+        server: String,
     },
 }
 
@@ -68,8 +92,24 @@ async fn main() -> Result<()> {
                 file, destination, cert, key
             );
 
+            let config = match config::Config::load() {
+                Ok(cfg) => cfg,
+                Err(_) => {
+                    anyhow::bail!("Config file not found. Please run: rxx register <id>");
+                }
+            };
+
+            let dest = destination.clone();
+            let cfg = config.clone();
+            let resolver = move || {
+                let d = dest.clone();
+                let c = cfg.clone();
+                Box::pin(async move { net::resolve_peer(&d, &c).await })
+                    as std::pin::Pin<Box<dyn std::future::Future<Output = Result<Ipv6Addr>> + Send>>
+            };
+
             // Perform UDP hole punching
-            let peer_addr = udp::punch_hole(destination, false).await?;
+            let peer_addr = udp::punch_hole(resolver, false).await?;
 
             // Create QUIC client config
             let client_config = quic::create_client_config()?;
@@ -105,8 +145,24 @@ async fn main() -> Result<()> {
                 source, output, cert, key
             );
 
+            let config = match config::Config::load() {
+                Ok(cfg) => cfg,
+                Err(_) => {
+                    anyhow::bail!("Config file not found. Please run: rxx register <id>");
+                }
+            };
+
+            let src = source.clone();
+            let cfg = config.clone();
+            let resolver = move || {
+                let s = src.clone();
+                let c = cfg.clone();
+                Box::pin(async move { net::resolve_peer(&s, &c).await })
+                    as std::pin::Pin<Box<dyn std::future::Future<Output = Result<Ipv6Addr>> + Send>>
+            };
+
             // Perform UDP hole punching
-            let peer_addr = udp::punch_hole(source, true).await?;
+            let peer_addr = udp::punch_hole(resolver, true).await?;
 
             // Generate or load certificate
             let cert_key = if let (Some(cert_path), Some(key_path)) = (&cert, &key) {
@@ -140,6 +196,44 @@ async fn main() -> Result<()> {
             quic::receive_file(&connection, &output_path).await?;
 
             println!("File transfer completed successfully");
+        }
+        Commands::Server { db, port } => {
+            println!("Starting server: db={}, port={}", db, port);
+            server::run_server(&db, port).await?;
+        }
+        Commands::Register { id, server } => {
+            if !id.chars().all(|c| c.is_alphanumeric()) {
+                anyhow::bail!("ID must be alphanumeric only");
+            }
+            if id.len() > 20 {
+                anyhow::bail!("ID must be 20 characters or less");
+            }
+
+            let ipv6 = net::get_local_ipv6()?;
+            println!("Registering ID '{}' with IPv6 {}...", id, ipv6);
+
+            let client = reqwest::Client::new();
+            let response = client
+                .post(format!("{}/register", server))
+                .json(&serde_json::json!({
+                    "id": id,
+                    "ipv6": ipv6.to_string()
+                }))
+                .send()
+                .await?;
+
+            if response.status().is_success() {
+                let config = config::Config {
+                    user_id: id.clone(),
+                    server_url: server.clone(),
+                };
+                config.save()?;
+                println!("Successfully registered ID '{}'", id);
+            } else if response.status() == reqwest::StatusCode::CONFLICT {
+                anyhow::bail!("ID '{}' is already registered", id);
+            } else {
+                anyhow::bail!("Registration failed: {}", response.status());
+            }
         }
     }
 

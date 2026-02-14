@@ -123,6 +123,60 @@ Options:
 - Test with large files
 - Test connection failures and retries
 
+### Milestone 4: Central Server for ID-Based Peer Discovery
+**Goal**: Enable users to discover peers by ID instead of IPv6 address via a central registration server
+
+**Success Criteria**:
+- Server mode runs via `rxx server` subcommand with HTTP REST API on port 3457
+- Server stores ID-to-IPv6 mappings in SQLite database
+- Server enforces ID constraints (alphanumeric, max 20 chars, case-insensitive, no overwrites)
+- Server sets 1-year TTL on IPv6 addresses
+- Registration command `rxx register <id>` creates ~/.rxx.conf with user_id and server_url
+- Send/receive commands read ~/.rxx.conf and error if user_id is missing
+- Send/receive commands accept both IDs and IPv6 addresses (auto-detect format)
+- On every send/receive invocation, tool updates its own IPv6 and resolves peer IPv6 from server
+- On every hole-punching retry, tool re-resolves peer IPv6 from server
+- If server is unreachable, tool errors with clear message to use direct IPv6 mode
+- Server returns appropriate HTTP status codes (200 for success, 409 for duplicate ID, etc.)
+
+**Deliverables**:
+- HTTP REST API server implementation with endpoints:
+  - POST /register - Register new ID
+  - POST /update - Update own IPv6 and resolve peer IPv6 (combined operation)
+- SQLite database schema and operations
+- Config file (~/.rxx.conf) management in TOML format
+- `rxx register <id>` command implementation
+- ID vs IPv6 address detection logic
+- Server resolution integration in send/receive flows
+- Server resolution on hole-punching retries
+- Error handling for unreachable server
+
+**API Endpoints**:
+```
+POST /register
+Body: {"id": "alice", "ipv6": "2001:db8::1"}
+Response: 200 OK | 409 Conflict
+
+POST /update
+Body: {"id": "alice", "ipv6": "2001:db8::1", "peer_id": "bob"}
+Response: 200 OK {"peer_ipv6": "2001:db8::2"} | 404 Not Found
+```
+
+**Database Schema**:
+```sql
+CREATE TABLE registrations (
+    id TEXT PRIMARY KEY,
+    ipv6 TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+```
+
+**Config File Format (~/.rxx.conf)**:
+```toml
+user_id = "alice"
+server_url = "http://rxx.advistatech.com:3457"
+```
+
 ## Open Questions / Future Enhancements
 - Resume capability for interrupted transfers
 - Multiple file support
@@ -130,3 +184,5 @@ Options:
 - Compression
 - Better certificate management (CA validation)
 - IPv4 fallback support
+- Server authentication/authorization
+- Server clustering and high availability

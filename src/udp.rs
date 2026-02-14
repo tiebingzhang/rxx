@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
+use std::future::Future;
 use std::net::{Ipv6Addr, SocketAddr};
+use std::pin::Pin;
 use tokio::net::UdpSocket;
 use tokio::time::{interval, timeout, Duration};
 
@@ -10,8 +12,12 @@ const PROBE_ACK: &[u8] = b"RXX_PROBE_ACK";
 const TIMEOUT_SECS: u64 = 10;
 const MAX_RETRIES: u32 = 3;
 
-pub async fn punch_hole(peer_addr: Ipv6Addr, is_server: bool) -> Result<SocketAddr> {
+pub async fn punch_hole<F>(mut resolver: F, is_server: bool) -> Result<SocketAddr>
+where
+    F: FnMut() -> Pin<Box<dyn Future<Output = Result<Ipv6Addr>> + Send>>,
+{
     for attempt in 1..=MAX_RETRIES {
+        let peer_addr = resolver().await?;
         println!(
             "UDP hole punching attempt {}/{} to {}...",
             attempt, MAX_RETRIES, peer_addr

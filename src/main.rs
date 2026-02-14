@@ -74,6 +74,8 @@ enum Commands {
         #[arg(long, default_value = "http://rxx.advistatech.com:3457")]
         server: String,
     },
+    /// Show available IPv6 addresses
+    Ip,
 }
 
 #[tokio::main]
@@ -114,8 +116,9 @@ async fn main() -> Result<()> {
             // Create QUIC client config
             let client_config = quic::create_client_config()?;
 
-            // Connect to QUIC server using the same port as UDP hole punching
-            let bind_addr = format!("[::]:{}", udp::CLIENT_PORT).parse()?;
+            // Connect to QUIC server using the same port and address as UDP hole punching
+            let local_ipv6 = net::get_local_ipv6()?;
+            let bind_addr = format!("[{}]:{}", local_ipv6, udp::CLIENT_PORT).parse()?;
             let connection = quic::connect_client(client_config, bind_addr, peer_addr).await?;
 
             println!(
@@ -174,8 +177,9 @@ async fn main() -> Result<()> {
             // Create QUIC server config
             let server_config = quic::create_server_config(&cert_key)?;
 
-            // Start QUIC server on the same port as UDP hole punching
-            let bind_addr = format!("[::]:{}", udp::SERVER_PORT).parse()?;
+            // Start QUIC server on the same port and address as UDP hole punching
+            let local_ipv6 = net::get_local_ipv6()?;
+            let bind_addr = format!("[{}]:{}", local_ipv6, udp::SERVER_PORT).parse()?;
             let endpoint = quic::start_server(server_config, bind_addr).await?;
 
             // Accept incoming connection
@@ -234,6 +238,33 @@ async fn main() -> Result<()> {
             } else {
                 anyhow::bail!("Registration failed: {}", response.status());
             }
+        }
+        Commands::Ip => {
+            let addrs = net::get_all_ipv6()?;
+
+            println!("Available IPv6 addresses:\n");
+            for (i, info) in addrs.iter().enumerate() {
+                let marker = if i == 0 { " [RECOMMENDED]" } else { "" };
+                let temp_flag = if info.is_temporary {
+                    " (temporary)"
+                } else {
+                    " (stable)"
+                };
+                let scope = match info.scope {
+                    net::Ipv6Scope::Global => "global",
+                    net::Ipv6Scope::UniqueLocal => "unique-local",
+                    net::Ipv6Scope::LinkLocal => "link-local",
+                };
+
+                println!("  {}{}", info.addr, marker);
+                println!("    Interface: {}", info.interface);
+                println!("    Type: {}{}", scope, temp_flag);
+                println!();
+            }
+
+            println!(
+                "The recommended address will be used by default for send/receive operations."
+            );
         }
     }
 

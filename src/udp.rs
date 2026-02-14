@@ -60,12 +60,15 @@ async fn try_punch_hole(peer_addr: Ipv6Addr, is_server: bool) -> Result<SocketAd
     let local_port = if is_server { SERVER_PORT } else { CLIENT_PORT };
     let peer_port = if is_server { CLIENT_PORT } else { SERVER_PORT };
 
-    // Bind to IPv6 port
-    let socket = UdpSocket::bind(format!("[::]:{}", local_port))
+    // Get the stable local IPv6 address
+    let local_ipv6 = crate::net::get_local_ipv6()?;
+
+    // Bind to specific IPv6 address
+    let socket = UdpSocket::bind(format!("[{}]:{}", local_ipv6, local_port))
         .await
         .context("Failed to bind UDP socket")?;
 
-    println!("UDP socket bound to [::]{}", local_port);
+    println!("UDP socket bound to [{}]:{}", local_ipv6, local_port);
 
     let peer_socket = SocketAddr::from((peer_addr, peer_port));
 

@@ -3,8 +3,8 @@ use std::net::{Ipv6Addr, SocketAddr};
 use tokio::net::UdpSocket;
 use tokio::time::{interval, timeout, Duration};
 
-const CLIENT_PORT: u16 = 3457;
-const SERVER_PORT: u16 = 3458;
+pub const CLIENT_PORT: u16 = 3457;
+pub const SERVER_PORT: u16 = 3458;
 const PROBE_PACKET: &[u8] = b"RXX_PROBE";
 const PROBE_ACK: &[u8] = b"RXX_PROBE_ACK";
 const TIMEOUT_SECS: u64 = 10;
@@ -96,14 +96,14 @@ async fn try_punch_hole(peer_addr: Ipv6Addr, is_server: bool) -> Result<SocketAd
 
                     // If we've received a probe and sent ACK, bidirectional is established
                     // (we can receive from peer, and peer will receive our ACK)
-                    return Ok(peer_socket);
+                    return Ok(from);
                 } else if data == PROBE_ACK {
                     println!("Received probe ACK from {}", from);
                     received_probe = true;
 
                     // Check if bidirectional
                     if sent_probe && received_probe {
-                        return Ok(peer_socket);
+                        return Ok(from);
                     }
                 }
             }

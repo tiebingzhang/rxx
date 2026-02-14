@@ -74,8 +74,8 @@ async fn main() -> Result<()> {
             // Create QUIC client config
             let client_config = quic::create_client_config()?;
 
-            // Connect to QUIC server
-            let bind_addr = "[::]:0".parse()?;
+            // Connect to QUIC server using the same port as UDP hole punching
+            let bind_addr = format!("[::]:{}", udp::CLIENT_PORT).parse()?;
             let connection = quic::connect_client(client_config, bind_addr, peer_addr).await?;
 
             println!(
@@ -118,8 +118,8 @@ async fn main() -> Result<()> {
             // Create QUIC server config
             let server_config = quic::create_server_config(&cert_key)?;
 
-            // Start QUIC server
-            let bind_addr = "[::]:3458".parse()?;
+            // Start QUIC server on the same port as UDP hole punching
+            let bind_addr = format!("[::]:{}", udp::SERVER_PORT).parse()?;
             let endpoint = quic::start_server(server_config, bind_addr).await?;
 
             // Accept incoming connection

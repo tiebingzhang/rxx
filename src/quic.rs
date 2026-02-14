@@ -27,8 +27,16 @@ pub fn create_server_config(cert_key: &CertKeyPair) -> Result<ServerConfig> {
     let cert_chain: Vec<CertificateDer> = cert_der;
     let private_key: PrivateKeyDer = key_der;
 
-    let server_config = ServerConfig::with_single_cert(cert_chain, private_key)
+    let mut server_config = ServerConfig::with_single_cert(cert_chain, private_key)
         .context("Failed to create server config")?;
+
+    let mut transport = quinn::TransportConfig::default();
+    transport.max_idle_timeout(Some(quinn::IdleTimeout::from(quinn::VarInt::from_u32(300000)))); // 5 minutes
+    transport.keep_alive_interval(Some(std::time::Duration::from_secs(10)));
+    transport.stream_receive_window(quinn::VarInt::from_u32(1024 * 1024)); // 1MB per stream
+    transport.receive_window(quinn::VarInt::from_u64(10 * 1024 * 1024).unwrap()); // 10MB connection
+    transport.send_window(10 * 1024 * 1024); // 10MB
+    server_config.transport_config(Arc::new(transport));
 
     println!("QUIC server configuration created");
     Ok(server_config)
@@ -46,10 +54,18 @@ pub fn create_client_config() -> Result<ClientConfig> {
         .with_custom_certificate_verifier(Arc::new(SkipServerVerification))
         .with_no_client_auth();
 
-    let client_config = ClientConfig::new(Arc::new(
+    let mut client_config = ClientConfig::new(Arc::new(
         quinn::crypto::rustls::QuicClientConfig::try_from(crypto)
             .context("Failed to create QUIC client config")?,
     ));
+
+    let mut transport = quinn::TransportConfig::default();
+    transport.max_idle_timeout(Some(quinn::IdleTimeout::from(quinn::VarInt::from_u32(300000)))); // 5 minutes
+    transport.keep_alive_interval(Some(std::time::Duration::from_secs(10)));
+    transport.stream_receive_window(quinn::VarInt::from_u32(1024 * 1024)); // 1MB per stream
+    transport.receive_window(quinn::VarInt::from_u64(10 * 1024 * 1024).unwrap()); // 10MB connection
+    transport.send_window(10 * 1024 * 1024); // 10MB
+    client_config.transport_config(Arc::new(transport));
 
     println!("QUIC client configuration created (skipping cert verification)");
     Ok(client_config)
@@ -157,18 +173,23 @@ pub async fn send_file(connection: &Connection, file_path: &Path) -> Result<()> 
 
     println!("Sending file: {} ({} bytes)", file_name, file_size);
 
+    println!("DEBUG [SEND]: Opening bidirectional stream...");
     let (mut send, _recv) = connection
         .open_bi()
         .await
         .context("Failed to open bidirectional stream")?;
+    println!("DEBUG [SEND]: Bidirectional stream opened");
 
     // Send metadata: filename length (u32) + filename + file size (u64)
+    println!("DEBUG [SEND]: Sending filename length: {}", file_name.len());
     send.write_u32(file_name.len() as u32)
         .await
         .context("Failed to send filename length")?;
+    println!("DEBUG [SEND]: Sending filename: {}", file_name);
     send.write_all(file_name.as_bytes())
         .await
         .context("Failed to send filename")?;
+    println!("DEBUG [SEND]: Sending file size: {}", file_size);
     send.write_u64(file_size)
         .await
         .context("Failed to send file size")?;
@@ -189,36 +210,57 @@ pub async fn send_file(connection: &Connection, file_path: &Path) -> Result<()> 
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; 64 * 1024]; // 64KB chunks
     let mut total_sent = 0u64;
+    let mut chunk_count = 0u64;
 
+    println!("DEBUG [SEND]: Starting file content loop...");
     loop {
         let n = file
             .read(&mut buffer)
             .await
             .context("Failed to read from file")?;
 
+        println!("DEBUG [SEND]: Read {} bytes from file (chunk #{}, total_sent={})", n, chunk_count, total_sent);
+
         if n == 0 {
+            println!("DEBUG [SEND]: EOF reached, breaking loop");
             break;
         }
 
         hasher.update(&buffer[..n]);
 
+        println!("DEBUG [SEND]: Calling write_all for {} bytes...", n);
         send.write_all(&buffer[..n])
             .await
             .context("Failed to send file chunk")?;
+        println!("DEBUG [SEND]: write_all completed for {} bytes", n);
 
         total_sent += n as u64;
+        chunk_count += 1;
         pb.set_position(total_sent);
+        
+        println!("DEBUG [SEND]: Chunk #{} sent, total_sent={}/{}", chunk_count, total_sent, file_size);
     }
 
+    println!("DEBUG [SEND]: File content loop completed, total_sent={}", total_sent);
     pb.finish_with_message("Sent");
 
     // Send hash
     let hash = hasher.finalize();
+    println!("DEBUG [SEND]: Sending SHA256 hash: {:x}", hash);
     send.write_all(&hash)
         .await
         .context("Failed to send file hash")?;
+    println!("DEBUG [SEND]: Hash sent successfully");
 
+    println!("DEBUG [SEND]: Calling send.finish()...");
     send.finish().context("Failed to finish stream")?;
+    println!("DEBUG [SEND]: send.finish() completed");
+    
+    // Wait for the stream to be fully acknowledged
+    println!("DEBUG [SEND]: Waiting for stream to be fully transmitted...");
+    send.stopped().await.context("Stream was stopped by peer")?;
+    println!("DEBUG [SEND]: Stream fully transmitted and acknowledged");
+    
     println!(
         "File sent successfully: {} bytes (SHA256: {:x})",
         total_sent, hash
@@ -230,25 +272,33 @@ pub async fn send_file(connection: &Connection, file_path: &Path) -> Result<()> 
 pub async fn receive_file(connection: &Connection, output_dir: &Path) -> Result<()> {
     println!("Waiting for incoming file stream...");
 
+    println!("DEBUG [RECV]: Calling accept_bi()...");
     let (_send, mut recv) = connection
         .accept_bi()
         .await
         .context("Failed to accept bidirectional stream")?;
+    println!("DEBUG [RECV]: Bidirectional stream accepted");
 
     // Receive metadata
+    println!("DEBUG [RECV]: Reading filename length...");
     let filename_len = recv
         .read_u32()
         .await
         .context("Failed to read filename length")?;
+    println!("DEBUG [RECV]: Filename length: {}", filename_len);
 
     let mut filename_bytes = vec![0u8; filename_len as usize];
+    println!("DEBUG [RECV]: Reading filename bytes...");
     recv.read_exact(&mut filename_bytes)
         .await
         .context("Failed to read filename")?;
 
     let filename = String::from_utf8(filename_bytes).context("Invalid UTF-8 in filename")?;
+    println!("DEBUG [RECV]: Filename: {}", filename);
 
+    println!("DEBUG [RECV]: Reading file size...");
     let file_size = recv.read_u64().await.context("Failed to read file size")?;
+    println!("DEBUG [RECV]: File size: {}", file_size);
 
     println!("Receiving file: {} ({} bytes)", filename, file_size);
 
@@ -282,14 +332,24 @@ pub async fn receive_file(connection: &Connection, output_dir: &Path) -> Result<
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; 64 * 1024]; // 64KB chunks
     let mut total_received = 0u64;
+    let mut chunk_count = 0u64;
 
+    println!("DEBUG [RECV]: Starting receive loop...");
     loop {
+        println!("DEBUG [RECV]: Calling recv.read() (chunk #{}, total_received={}/{})", chunk_count, total_received, file_size);
         match recv.read(&mut buffer).await {
             Ok(Some(n)) => {
+                chunk_count += 1;
+                println!("DEBUG [RECV]: recv.read() returned {} bytes (chunk #{}, total_received={}, file_size={})", n, chunk_count, total_received, file_size);
+                
                 if total_received + n as u64 > file_size {
+                    println!("DEBUG [RECV]: Detected hash in this chunk (total would be {} > {})", total_received + n as u64, file_size);
                     // This is the hash, not file data
                     let hash_start = (file_size - total_received) as usize;
+                    println!("DEBUG [RECV]: hash_start={}, remaining_file_data={}", hash_start, hash_start);
+                    
                     if hash_start > 0 {
+                        println!("DEBUG [RECV]: Writing final {} bytes of file data", hash_start);
                         hasher.update(&buffer[..hash_start]);
                         file.write_all(&buffer[..hash_start])
                             .await
@@ -300,13 +360,16 @@ pub async fn receive_file(connection: &Connection, output_dir: &Path) -> Result<
 
                     // Read the hash
                     let mut received_hash = buffer[hash_start..n].to_vec();
+                    println!("DEBUG [RECV]: Extracted {} bytes of hash from current buffer", received_hash.len());
                     let remaining = 32 - received_hash.len();
                     if remaining > 0 {
+                        println!("DEBUG [RECV]: Need to read {} more bytes for complete hash", remaining);
                         let mut hash_buf = vec![0u8; remaining];
                         recv.read_exact(&mut hash_buf)
                             .await
                             .context("Failed to read complete hash")?;
                         received_hash.extend_from_slice(&hash_buf);
+                        println!("DEBUG [RECV]: Complete hash received");
                     }
 
                     pb.finish_with_message("Received");
@@ -314,6 +377,9 @@ pub async fn receive_file(connection: &Connection, output_dir: &Path) -> Result<
 
                     // Verify hash
                     let computed_hash = hasher.finalize();
+                    println!("DEBUG [RECV]: Computed hash: {:x}", computed_hash);
+                    println!("DEBUG [RECV]: Received hash: {}", hex::encode(&received_hash));
+                    
                     if computed_hash.as_slice() != received_hash.as_slice() {
                         anyhow::bail!(
                             "File integrity check failed: hash mismatch\nExpected: {:x}\nReceived: {}",
@@ -336,6 +402,7 @@ pub async fn receive_file(connection: &Connection, output_dir: &Path) -> Result<
                     return Ok(());
                 }
 
+                println!("DEBUG [RECV]: Writing {} bytes to file", n);
                 hasher.update(&buffer[..n]);
                 file.write_all(&buffer[..n])
                     .await
@@ -343,16 +410,20 @@ pub async fn receive_file(connection: &Connection, output_dir: &Path) -> Result<
 
                 total_received += n as u64;
                 pb.set_position(total_received);
+                println!("DEBUG [RECV]: Chunk #{} written, total_received={}/{}", chunk_count, total_received, file_size);
             }
             Ok(None) => {
+                println!("DEBUG [RECV]: recv.read() returned None (stream finished), total_received={}, file_size={}", total_received, file_size);
                 break;
             }
             Err(e) => {
+                println!("DEBUG [RECV]: recv.read() returned error: {:?}", e);
                 return Err(e).context("Failed to read from stream");
             }
         }
     }
 
+    println!("DEBUG [RECV]: Exited receive loop, total_received={}, file_size={}", total_received, file_size);
     pb.finish_with_message("Received");
     file.flush().await.context("Failed to flush file")?;
 

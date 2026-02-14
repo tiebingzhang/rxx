@@ -86,6 +86,12 @@ async fn main() -> Result<()> {
             // Send file
             quic::send_file(&connection, &file).await?;
 
+            // Close connection gracefully and wait for acknowledgment
+            println!("DEBUG [MAIN]: Closing connection gracefully...");
+            connection.close(0u32.into(), b"transfer complete");
+            connection.closed().await;
+            println!("DEBUG [MAIN]: Connection closed");
+
             println!("File transfer completed successfully");
         }
         Commands::Receive {

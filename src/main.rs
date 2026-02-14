@@ -43,9 +43,13 @@ enum Commands {
         /// Source (IPv6 address or user ID)
         source: String,
 
-        /// Output directory for received file
+        /// Output directory for received files
         #[arg(short, long)]
         output: Option<PathBuf>,
+
+        /// Create subfolder named after sender's user ID
+        #[arg(long)]
+        user_folder: bool,
 
         /// Path to custom certificate file
         #[arg(long)]
@@ -127,7 +131,7 @@ async fn main() -> Result<()> {
             );
 
             // Send file
-            quic::send_file(&connection, &file).await?;
+            quic::send_file(&connection, &file, &config.user_id).await?;
 
             // Close connection gracefully and wait for acknowledgment
             println!("DEBUG [MAIN]: Closing connection gracefully...");
@@ -140,12 +144,13 @@ async fn main() -> Result<()> {
         Commands::Receive {
             source,
             output,
+            user_folder,
             cert,
             key,
         } => {
             println!(
-                "Receive mode: source={}, output={:?}, cert={:?}, key={:?}",
-                source, output, cert, key
+                "Receive mode: source={}, output={:?}, user_folder={}, cert={:?}, key={:?}",
+                source, output, user_folder, cert, key
             );
 
             let config = match config::Config::load() {
@@ -155,51 +160,104 @@ async fn main() -> Result<()> {
                 }
             };
 
-            let src = source.clone();
-            let cfg = config.clone();
-            let resolver = move || {
-                let s = src.clone();
-                let c = cfg.clone();
-                Box::pin(async move { net::resolve_peer(&s, &c).await })
-                    as std::pin::Pin<Box<dyn std::future::Future<Output = Result<Ipv6Addr>> + Send>>
-            };
+            let output_base = output.unwrap_or_else(|| PathBuf::from("."));
 
-            // Perform UDP hole punching
-            let peer_addr = udp::punch_hole(resolver, true).await?;
+            loop {
+                println!("\nWaiting for next connection...");
 
-            // Generate or load certificate
-            let cert_key = if let (Some(cert_path), Some(key_path)) = (&cert, &key) {
-                cert::load_cert_from_file(cert_path, key_path)?
-            } else {
-                cert::generate_self_signed_cert()?
-            };
+                let src = source.clone();
+                let cfg = config.clone();
+                let resolver = move || {
+                    let s = src.clone();
+                    let c = cfg.clone();
+                    Box::pin(async move { net::resolve_peer(&s, &c).await })
+                        as std::pin::Pin<
+                            Box<dyn std::future::Future<Output = Result<Ipv6Addr>> + Send>,
+                        >
+                };
 
-            // Create QUIC server config
-            let server_config = quic::create_server_config(&cert_key)?;
+                // Perform UDP hole punching
+                let peer_addr = match udp::punch_hole(resolver, true).await {
+                    Ok(addr) => addr,
+                    Err(e) => {
+                        eprintln!("Error during UDP hole punching: {}", e);
+                        continue;
+                    }
+                };
 
-            // Start QUIC server on the same port and address as UDP hole punching
-            let local_ipv6 = net::get_local_ipv6()?;
-            let bind_addr = format!("[{}]:{}", local_ipv6, udp::SERVER_PORT).parse()?;
-            let endpoint = quic::start_server(server_config, bind_addr).await?;
+                // Generate or load certificate
+                let cert_key = if let (Some(cert_path), Some(key_path)) = (&cert, &key) {
+                    match cert::load_cert_from_file(cert_path, key_path) {
+                        Ok(ck) => ck,
+                        Err(e) => {
+                            eprintln!("Error loading certificate: {}", e);
+                            continue;
+                        }
+                    }
+                } else {
+                    match cert::generate_self_signed_cert() {
+                        Ok(ck) => ck,
+                        Err(e) => {
+                            eprintln!("Error generating certificate: {}", e);
+                            continue;
+                        }
+                    }
+                };
 
-            // Accept incoming connection
-            println!("Waiting for QUIC connection from {}...", peer_addr);
-            let incoming = endpoint
-                .accept()
-                .await
-                .ok_or_else(|| anyhow::anyhow!("No incoming connection"))?;
-            let connection = incoming.await?;
+                // Create QUIC server config
+                let server_config = match quic::create_server_config(&cert_key) {
+                    Ok(sc) => sc,
+                    Err(e) => {
+                        eprintln!("Error creating server config: {}", e);
+                        continue;
+                    }
+                };
 
-            println!(
-                "QUIC connection accepted from {}",
-                connection.remote_address()
-            );
+                // Start QUIC server on the same port and address as UDP hole punching
+                let local_ipv6 = match net::get_local_ipv6() {
+                    Ok(ip) => ip,
+                    Err(e) => {
+                        eprintln!("Error getting local IPv6: {}", e);
+                        continue;
+                    }
+                };
+                let bind_addr = format!("[{}]:{}", local_ipv6, udp::SERVER_PORT).parse()?;
+                let endpoint = match quic::start_server(server_config, bind_addr).await {
+                    Ok(ep) => ep,
+                    Err(e) => {
+                        eprintln!("Error starting QUIC server: {}", e);
+                        continue;
+                    }
+                };
 
-            // Receive file
-            let output_path = output.unwrap_or_else(|| PathBuf::from("."));
-            quic::receive_file(&connection, &output_path).await?;
+                // Accept incoming connection
+                println!("Waiting for QUIC connection from {}...", peer_addr);
+                let incoming = match endpoint.accept().await {
+                    Some(inc) => inc,
+                    None => {
+                        eprintln!("No incoming connection");
+                        continue;
+                    }
+                };
+                let connection = match incoming.await {
+                    Ok(conn) => conn,
+                    Err(e) => {
+                        eprintln!("Error accepting connection: {}", e);
+                        continue;
+                    }
+                };
 
-            println!("File transfer completed successfully");
+                println!(
+                    "QUIC connection accepted from {}",
+                    connection.remote_address()
+                );
+
+                // Receive file
+                match quic::receive_file(&connection, &output_base, user_folder).await {
+                    Ok(_) => println!("File transfer completed successfully"),
+                    Err(e) => eprintln!("Error during file transfer: {}", e),
+                }
+            }
         }
         Commands::Server { db, port } => {
             println!("Starting server: db={}, port={}", db, port);
@@ -210,15 +268,20 @@ async fn main() -> Result<()> {
             if id.is_empty() || id.len() > 20 {
                 anyhow::bail!("ID must be between 1 and 20 characters");
             }
-            
+
             let first = id.chars().next().unwrap();
             let last = id.chars().last().unwrap();
             if !first.is_alphanumeric() || !last.is_alphanumeric() {
                 anyhow::bail!("ID must start and end with alphanumeric characters");
             }
-            
-            if !id.chars().all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_') {
-                anyhow::bail!("ID can only contain alphanumeric characters, dots, hyphens, and underscores");
+
+            if !id
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_')
+            {
+                anyhow::bail!(
+                    "ID can only contain alphanumeric characters, dots, hyphens, and underscores"
+                );
             }
 
             let ipv6 = net::get_local_ipv6()?;

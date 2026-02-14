@@ -153,7 +153,7 @@ pub async fn connect_client(
     Ok(connection)
 }
 
-pub async fn send_file(connection: &Connection, file_path: &Path) -> Result<()> {
+pub async fn send_file(connection: &Connection, file_path: &Path, user_id: &str) -> Result<()> {
     println!("Opening file {:?} for sending...", file_path);
 
     let mut file = File::open(file_path)
@@ -184,7 +184,15 @@ pub async fn send_file(connection: &Connection, file_path: &Path) -> Result<()> 
         .context("Failed to open bidirectional stream")?;
     println!("DEBUG [SEND]: Bidirectional stream opened");
 
-    // Send metadata: filename length (u32) + filename + file size (u64)
+    // Send metadata: user_id length (u32) + user_id + filename length (u32) + filename + file size (u64)
+    println!("DEBUG [SEND]: Sending user_id length: {}", user_id.len());
+    send.write_u32(user_id.len() as u32)
+        .await
+        .context("Failed to send user_id length")?;
+    println!("DEBUG [SEND]: Sending user_id: {}", user_id);
+    send.write_all(user_id.as_bytes())
+        .await
+        .context("Failed to send user_id")?;
     println!("DEBUG [SEND]: Sending filename length: {}", file_name.len());
     send.write_u32(file_name.len() as u32)
         .await
@@ -282,7 +290,11 @@ pub async fn send_file(connection: &Connection, file_path: &Path) -> Result<()> 
     Ok(())
 }
 
-pub async fn receive_file(connection: &Connection, output_dir: &Path) -> Result<()> {
+pub async fn receive_file(
+    connection: &Connection,
+    output_dir: &Path,
+    user_folder: bool,
+) -> Result<()> {
     println!("Waiting for incoming file stream...");
 
     println!("DEBUG [RECV]: Calling accept_bi()...");
@@ -293,6 +305,22 @@ pub async fn receive_file(connection: &Connection, output_dir: &Path) -> Result<
     println!("DEBUG [RECV]: Bidirectional stream accepted");
 
     // Receive metadata
+    println!("DEBUG [RECV]: Reading user_id length...");
+    let user_id_len = recv
+        .read_u32()
+        .await
+        .context("Failed to read user_id length")?;
+    println!("DEBUG [RECV]: User_id length: {}", user_id_len);
+
+    let mut user_id_bytes = vec![0u8; user_id_len as usize];
+    println!("DEBUG [RECV]: Reading user_id bytes...");
+    recv.read_exact(&mut user_id_bytes)
+        .await
+        .context("Failed to read user_id")?;
+
+    let sender_id = String::from_utf8(user_id_bytes).context("Invalid UTF-8 in user_id")?;
+    println!("DEBUG [RECV]: Sender ID: {}", sender_id);
+
     println!("DEBUG [RECV]: Reading filename length...");
     let filename_len = recv
         .read_u32()
@@ -313,18 +341,28 @@ pub async fn receive_file(connection: &Connection, output_dir: &Path) -> Result<
     let file_size = recv.read_u64().await.context("Failed to read file size")?;
     println!("DEBUG [RECV]: File size: {}", file_size);
 
-    println!("Receiving file: {} ({} bytes)", filename, file_size);
+    println!(
+        "Receiving file: {} ({} bytes) from {}",
+        filename, file_size, sender_id
+    );
+
+    // Determine output directory
+    let final_output_dir = if user_folder {
+        output_dir.join(&sender_id)
+    } else {
+        output_dir.to_path_buf()
+    };
 
     // Create output directory if it doesn't exist
-    if !output_dir.exists() {
-        tokio::fs::create_dir_all(output_dir)
+    if !final_output_dir.exists() {
+        tokio::fs::create_dir_all(&final_output_dir)
             .await
             .context("Failed to create output directory")?;
-        println!("Created output directory: {:?}", output_dir);
+        println!("Created output directory: {:?}", final_output_dir);
     }
 
     // Create output file
-    let output_path = output_dir.join(&filename);
+    let output_path = final_output_dir.join(&filename);
     let mut file = File::create(&output_path)
         .await
         .context(format!("Failed to create output file: {:?}", output_path))?;

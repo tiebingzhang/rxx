@@ -55,14 +55,16 @@ impl Config {
                 tokio::spawn(async move {
                     crate::debug!("DEBUG [HOOK]: Executing file-received hook: {}", cmd);
 
+                    let full_cmd = format!("{} {} {} {}", cmd, 
+                        shell_escape::escape(sender.into()),
+                        shell_escape::escape(fname.into()),
+                        file_size);
+
                     let result = tokio::time::timeout(
                         Duration::from_secs(10),
                         Command::new("sh")
                             .arg("-c")
-                            .arg(&cmd)
-                            .arg(&sender)
-                            .arg(&fname)
-                            .arg(file_size.to_string())
+                            .arg(&full_cmd)
                             .stdout(Stdio::piped())
                             .stderr(Stdio::piped())
                             .output(),

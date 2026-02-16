@@ -22,3 +22,4 @@ serde_json = "1.0"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 if-addrs = "0.13"
 rand = "0.8"
+shell-escape = "0.1"
